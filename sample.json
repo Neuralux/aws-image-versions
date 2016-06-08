@@ -1,0 +1,55 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "[Network] Kafka",
+
+  "Resources": {
+
+    "DynamicAMI" : {
+      "Type" : "Custom::DynamicAMI",
+      "Properties" : {
+        "ServiceToken": { "Fn::Join": [ ":", [ "arn:aws:lambda", { "Ref": "AWS::Region" }, { "Ref": "AWS::AccountId" }, "ami-lookup" ]]},
+        "NodeName" : "base",
+        "Region" : { "Ref" : "AWS::Region" },
+        "AccountId" : { "Ref" : "AWS::AccountId" }
+      }
+    },
+
+    "LaunchConfig" : {
+      "Type" : "AWS::AutoScaling::LaunchConfiguration",
+      "Properties" : {
+        "InstanceType" : "t2.small",
+        "ImageId" : { "Fn::GetAtt" : [ "DynamicAMI", "Id" ] } ,
+        "UserData" : {
+          "Fn::Base64" : { "Fn::Join" : [ "", [
+            "#!/bin/bash\n",
+            "cfn-init --stack ", { "Ref" : "AWS::StackName" },
+            " --resource LaunchConfig",
+            " --region ", { "Ref" : "AWS::Region" },
+            "\n",
+            "cfn-signal --stack ", { "Ref" : "AWS::StackName" },
+            " --exit $?",
+            " --resource LaunchGroup",
+            " --region ", { "Ref" : "AWS::Region" },
+            "\n"
+          ] ] }
+        }
+      }
+    },
+
+    "LaunchGroup" : {
+      "Type" : "AWS::AutoScaling::AutoScalingGroup",
+      "CreationPolicy" : {
+        "ResourceSignal" : { "Count" : "1", "Timeout" : "PT5M" }
+      },
+      "Properties" : {
+        "LaunchConfigurationName" : { "Ref" : "LaunchConfig" },
+        "MinSize" : "1",
+        "MaxSize" : "1",
+        "Cooldown" : "180",
+        "HealthCheckGracePeriod" : "300",
+        "HealthCheckType" : "EC2",
+        "Tags" : [ { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" }, "PropagateAtLaunch" : "true" } ]
+      }
+    }
+  }
+}

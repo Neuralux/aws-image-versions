@@ -1,0 +1,79 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AMI Lookup Lambda Function",
+
+  "Resources" : {
+
+    "AMIExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": ["lambda.amazonaws.com"]},
+            "Action": ["sts:AssumeRole"]
+          }]
+        },
+        "Path": "/",
+        "Policies": [{
+          "PolicyName": "root",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [{
+              "Effect": "Allow",
+              "Action": ["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],
+              "Resource": "arn:aws:logs:*:*:*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["ec2:DescribeImages"],
+              "Resource": "*"
+            }]
+          }
+        }]
+      }
+    },
+
+    "AMILookupLambda": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "index.handler",
+        "FunctionName": "ami-lookup",
+        "Role": { "Fn::GetAtt" : ["AMIExecutionRole", "Arn"] },
+        "Code": {
+          "ZipFile":  { "Fn::Join": ["\n", [
+            "var response = require('cfn-response');",
+            "exports.handler = function(event, context) {",
+            "  if (event.RequestType == 'Delete') {",
+            "    response.send(event, context, response.SUCCESS);",
+            "    return;",
+            "  }",
+            "  var responseData = {};",
+            "  var queryParams = {",
+            "      Filters: [{ Name: 'name', Values: [ event.ResourceProperties.NodeName + '*' ]}],",
+            "      Owners: [ event.ResourceProperties.AccountId ]",
+            "  };",
+            "  var aws = require('aws-sdk');",
+            "  var ec2 = new aws.EC2({region: event.ResourceProperties.Region});",
+            "  ec2.describeImages(queryParams, function(err, result) {",
+            "    var images;",
+            "    if (err) {",
+            "      responseData = {Error: 'DescribeImages call failed'};",
+            "      response.send(event, context, response.FAILED, responseData);",
+            "    } else {",
+            "      images = result.Images;",
+            "      images.sort( function( x, y ) { return y.Name.localeCompare( x.Name ); });",
+            "      responseData['Id'] = images[0].ImageId;",
+            "      response.send(event, context, response.SUCCESS, responseData);",
+            "    }",
+            "  });",
+            "};"
+          ]]}
+        },
+        "Runtime": "nodejs",
+        "Timeout": "30"
+      }
+    }
+  }
+}
